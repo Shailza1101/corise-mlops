@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from loguru import logger
+from datetime import datetime
 
 from classifier import NewsCategoryClassifier
 
@@ -34,6 +35,10 @@ def startup_event():
     Access to the model instance and log file will be needed in /predict endpoint, make sure you
     store them as global variables
     """
+    global news_classifier 
+    news_classifier = NewsCategoryClassifier()
+    news_classifier.load(MODEL_PATH)
+    logger.add(LOGS_OUTPUT_PATH, level="DEBUG",colorize=True)
     logger.info("Setup completed")
 
 
@@ -45,8 +50,9 @@ def shutdown_event():
     1. Make sure to flush the log file and close any file pointers to avoid corruption
     2. Any other cleanups
     """
+    logger.complete()
+    open(LOGS_OUTPUT_PATH, 'w').close()
     logger.info("Shutting down application")
-
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
@@ -66,6 +72,19 @@ def predict(request: PredictRequest):
     3. Construct an instance of `PredictResponse` and return
     """
     response = PredictResponse(scores={"label1": 0.9, "label2": 0.1}, label="label1")
+    
+    start_time = datetime.now()
+    prediction = news_classifier.predict_label(request)
+    scores = news_classifier.predict_proba(request)
+    
+    response = PredictResponse(scores=scores, label=prediction)
+    log_dict = {
+        'timestamp': start_time.strftime("%Y:%m:%d %H:%M:%S"),
+        'request': request.json(),
+        'prediction':response.json(),
+        'latency': round((datetime.now() - start_time).total_seconds() * 1000,4)
+    }
+    logger.info(log_dict)
     return response
 
 
